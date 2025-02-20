@@ -7,10 +7,7 @@ import re  # 정규 표현식을 위해 추가
 # ------------------------------------------------------------------------------
 # 1) 주요 변수 test
 # ------------------------------------------------------------------------------
-jira_url    = "https://alt9-sol.atlassian.net"
-username    = "sheepknow@alt9.co.kr"
-api_token   = "ATATT3xFfGF04mxoMtYNXAVyiCpfzUN5qZ8lU7McJO3iY10paFpmesRISwr6ntgyi4Tq3kalNPlhU6XGIUpRlrR0vG4uijsXQWUdThSCj-k2OpN6RlAKpNWPFMnFPWZghplkJtrIdYO6ndYH9Qc4cc4vlSh7SdTTMwznZ9rHbi2aJGpjGI6kbLg=B87404A2"
-teamFieldId = "customfield_10001"
+# 이 자리에 jira api 키 넣기
 
 auth_string = f"{username}:{api_token}"
 auth_bytes  = auth_string.encode("utf-8")
