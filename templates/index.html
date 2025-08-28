@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sol Project - Perforce 변경사항 조회</title>
+  <style>
+    body{font-family:'Segoe UI',Arial,sans-serif;padding:20px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);margin:0;min-height:100vh}
+    .container{max-width:1200px;margin:0 auto;background:#fff;padding:0;border-radius:15px;box-shadow:0 10px 30px rgba(0,0,0,.2);overflow:hidden}
+    .header{background:linear-gradient(135deg,#2c3e50 0%,#3498db 100%);color:#fff;padding:30px;text-align:center}
+    .header h1{margin:0 0 10px 0;font-size:2.5em}
+    .header p{margin:0;font-size:1.2em;opacity:.9}
+    .search-section{padding:30px;background:#f8f9fa;border-bottom:1px solid #e9ecef}
+    button{background:linear-gradient(135deg,#3498db 0%,#2980b9 100%);color:#fff;padding:12px 25px;border:none;border-radius:8px;cursor:pointer;font-size:16px;font-weight:600;transition:all .3s}
+    button:hover{transform:translateY(-2px);box-shadow:0 5px 15px rgba(52,152,219,.4)}
+    button:disabled{background:#bdc3c7;cursor:not-allowed;transform:none;box-shadow:none}
+    input,select{padding:10px;margin:5px;border:2px solid #e9ecef;border-radius:8px;font-size:14px;transition:border-color .3s}
+    input:focus,select:focus{outline:none;border-color:#3498db;box-shadow:0 0 0 3px rgba(52,152,219,.1)}
+    .form-row{display:flex;gap:20px;margin-bottom:20px;flex-wrap:wrap}
+    .form-group{flex:1;min-width:200px}
+    label{display:block;margin-bottom:8px;font-weight:600;color:#2c3c50}
+    .depot-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;margin:15px 0}
+    .depot-item{display:flex;align-items:center;gap:8px;padding:10px;background:#fff;border-radius:8px;border:2px solid #e9ecef;transition:all .3s}
+    .depot-item:hover{background:#f8f9fa;border-color:#3498db}
+    .depot-item input[type="checkbox"]{margin:0;transform:scale(1.2)}
+    .result{padding:30px;background:#fff}
+    .depot-section{margin-bottom:30px;border:2px solid #e9ecef;border-radius:10px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,.1)}
+    .depot-header{background:linear-gradient(135deg,#34495e 0%,#2c3e50 100%);color:#fff;padding:15px 20px;font-weight:600;font-size:18px}
+    .user-section{padding:20px;border-bottom:1px solid #e9ecef}
+    .user-header{background:linear-gradient(135deg,#ecf0f1 0%,#bdc3c7 100%);padding:12px 15px;margin-bottom:15px;border-radius:8px;font-weight:600;color:#2c3e50}
+    .change-item{background:#fff;border:1px solid #e9ecef;border-radius:8px;margin-bottom:15px;padding:15px;box-shadow:0 2px 4px rgba(0,0,0,.05)}
+    .file-item{background:#f8f9fa;border-left:4px solid #3498db;padding:12px;margin:8px 0;border-radius:0 5px 5px 0}
+    .file-item.edit{border-left-color:#28a745}.file-item.add{border-left-color:#007bff}.file-item.delete{border-left-color:#dc3545}.file-item.integrate{border-left-color:#6f42c1}
+    .action-badge{display:inline-block;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:bold;color:#fff;margin-right:8px;text-transform:uppercase}
+    .action-edit{background:#28a745}.action-add{background:#007bff}.action-delete{background:#dc3545}.action-integrate{background:#6f42c1}
+    .diff-button{background:#17a2b8;padding:6px 12px;font-size:12px;margin-top:8px}
+    .loading{text-align:center;padding:40px;color:#7f8c8d;font-size:18px;display:none}
+    .loading::before{content:"⚡";display:block;font-size:3em;margin-bottom:15px;animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    /* diff 표 */
+    .diff-table{width:100%;border-collapse:collapse}
+    .diff-table th,.diff-table td{border:1px solid #718096;padding:8px;text-align:left;vertical-align:top}
+    .diff-table th{background:#4a5568;color:#e2e8f0}
+    .row-modified{background:#2d4a3e}
+    .row-added{background:#2d4a4a}
+    .row-removed{background:#4a2d2d}
+    .row-error{background:#4a2d2d}
+    .row-nochange{background:#4a5568;opacity:1;color:#a0aec0}
+    code{color:#e2e8f0}
+    .val-old{color:#f687b3}
+    .val-new{color:#68d391}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Sol Project</h1>
+      <p>Perforce 변경사항 조회 시스템</p>
+    </div>
+
+    <div class="search-section">
+      <form id="searchForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="startDate">시작 날짜</label>
+            <input type="datetime-local" id="startDate" required>
+          </div>
+          <div class="form-group">
+            <label for="endDate">종료 날짜</label>
+            <input type="datetime-local" id="endDate" required>
+          </div>
+          <div class="form-group">
+            <label for="userFilter">사용자 필터 (선택)</label>
+            <input type="text" id="userFilter" placeholder="사용자명 입력">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>저장소 선택</label>
+          <div class="depot-list">
+            {% for depot in depots %}
+            <div class="depot-item">
+              <input type="checkbox" id="depot_{{ depot }}" name="depots" value="{{ depot }}">
+              <label for="depot_{{ depot }}">{{ depot }}</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <button type="submit" id="searchBtn">검색 시작</button>
+      </form>
+    </div>
+
+    <div id="loading" class="loading">
+      <p>Sol Project 변경사항을 분석하는 중...</p>
+    </div>
+
+    <div id="result" class="result" style="display:none;"></div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const now = new Date();
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(now.getMonth() - 1);
+      
+      // datetime-local 포맷으로 변환 (YYYY-MM-DDTHH:mm)
+      document.getElementById('endDate').value = now.toISOString().slice(0, 16);
+      document.getElementById('startDate').value = oneMonthAgo.toISOString().slice(0, 16);
+      
+      const checkbox = document.querySelector('input[value="Sol Dev1Next"]');
+      if (checkbox) checkbox.checked = true;
+    });
+
+    document.getElementById('searchForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const startDate = document.getElementById('startDate').value;
+      const endDate = document.getElementById('endDate').value;
+      const userFilter = document.getElementById('userFilter').value;
+      const selectedDepots = Array.from(document.querySelectorAll('input[name="depots"]:checked')).map(cb => cb.value);
+      if (selectedDepots.length === 0) { alert('최소 하나의 저장소를 선택해주세요!'); return; }
+
+      // datetime-local 형식을 Perforce 형식으로 변환
+      const convertToPerforceDate = (dateTimeStr) => {
+        if (!dateTimeStr) return '';
+        const date = new Date(dateTimeStr);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hour = String(date.getHours()).padStart(2, '0');
+        const minute = String(date.getMinutes()).padStart(2, '0');
+        const second = '00';
+        return `${year}/${month}/${day}:${hour}:${minute}:${second}`;
+      };
+
+      const searchBtn = document.getElementById('searchBtn');
+      const loading = document.getElementById('loading');
+      const resultDiv = document.getElementById('result');
+
+      searchBtn.disabled = true; searchBtn.textContent = '검색 중...';
+      loading.style.display = 'block'; resultDiv.style.display = 'none';
+
+      try {
+        const response = await fetch('/api/search', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ 
+            start_date: convertToPerforceDate(startDate), 
+            end_date: convertToPerforceDate(endDate), 
+            depots: selectedDepots, 
+            user_filter: userFilter 
+          })
+        });
+        const data = await response.json();
+        displayResults(data);
+      } catch (error) {
+        resultDiv.innerHTML = '<div style="color:red;padding:20px;text-align:center;">오류: ' + escapeHtml(error.message) + '</div>';
+        resultDiv.style.display = 'block';
+      } finally {
+        searchBtn.disabled = false; searchBtn.textContent = '검색 시작';
+        loading.style.display = 'none';
+      }
+    });
+
+    function displayResults(data) {
+      const resultDiv = document.getElementById('result');
+      let html = '<h3>검색 결과</h3>';
+
+      let totalChanges = 0;
+      let totalUsers = 0;
+      for (const [depotName, depotData] of Object.entries(data)) {
+        if (!depotData || depotData.error) continue;
+        totalUsers += Object.keys(depotData).length;
+        for (const userData of Object.values(depotData)) {
+          totalChanges += userData.total_changes || 0;
+        }
+      }
+      if (totalChanges > 0) {
+        html += `<div style="background:#f39c12;color:#fff;padding:15px;border-radius:8px;margin-bottom:20px;text-align:center;">
+          <strong>총 ${totalChanges}개 변경사항 | ${totalUsers}명 작업자</strong></div>`;
+      }
+
+      for (const [depotName, depotData] of Object.entries(data)) {
+        html += `<div class="depot-section"><div class="depot-header">${escapeHtml(depotName)}</div>`;
+        if (!depotData) { html += '<div style="padding:20px;color:#7f8c8d;text-align:center;">결과 없음</div></div>'; continue; }
+        if (depotData.error) {
+          html += `<div style="padding:20px;color:#e74c3c;text-align:center;"><strong>오류:</strong> ${escapeHtml(depotData.error)}</div></div>`;
+          continue;
+        }
+        if (Object.keys(depotData).length === 0) {
+          html += '<div style="padding:20px;color:#7f8c8d;text-align:center;">변경사항이 없습니다.</div></div>'; continue;
+        }
+
+        for (const [userName, userData] of Object.entries(depotData)) {
+          html += `<div class="user-section">
+            <div class="user-header">${escapeHtml(userName)} (총 ${userData.total_changes}개 변경사항, 최근 ${userData.changes.length}개 표시)</div>`;
+
+          userData.changes.forEach((change, changeIndex) => {
+            html += `<div class="change-item">
+              <h4>Change ${escapeHtml(change.change_num)}</h4>
+              <p><strong>날짜:</strong> ${escapeHtml(change.date)} ${escapeHtml(change.time)}</p>
+              <p><strong>설명:</strong> ${escapeHtml(change.description || '')}</p>`;
+
+            if (change.jira_urls) {
+              const jiraLinks = change.jira_urls.split(', ').map(url =>
+                `<a href="${url}" target="_blank" style="color:#3498db;">${escapeHtml(url)}</a>`
+              ).join(', ');
+              html += `<p><strong>Jira:</strong> ${jiraLinks}</p>`;
+            }
+
+            if (change.files && change.files.length > 0) {
+              html += '<div style="margin-top:15px;"><strong>변경된 파일들:</strong></div>';
+              change.files.forEach((file, fileIndex) => {
+                // 사용자명도 포함해서 완전히 고유한 ID 생성
+                const diffId = `diff_${userName.replace(/[^a-zA-Z0-9]/g, '_')}_${change.change_num}_${fileIndex}`;
+                html += `<div class="file-item ${escapeHtml(file.action)}">
+                    <div>
+                      <span class="action-badge action-${escapeHtml(file.action)}">${escapeHtml(file.action)}</span>
+                      <strong>${escapeHtml(file.filename)}</strong>
+                    </div>
+                    <div style="font-size:12px;color:#666;margin-top:4px;">${escapeHtml(file.path)}${file.rev?`#${escapeHtml(file.rev)}`:''}</div>
+                    <button class="diff-button" onclick="loadDiff('${escapeJs(change.change_num)}','${escapeJs(file.path)}','${diffId}','${escapeJs(file.rev||'')}')">
+                      Diff 보기
+                    </button>
+                    <div id="${diffId}"></div>
+                  </div>`;
+              });
+            }
+            html += '</div>'; // change-item
+          });
+
+          html += '</div>'; // user-section
+        }
+
+        html += '</div>'; // depot-section
+      }
+
+      if (html === '<h3>검색 결과</h3>') {
+        html += '<div style="padding:40px;text-align:center;color:#7f8c8d;">검색 결과가 없습니다.</div>';
+      }
+      resultDiv.innerHTML = html;
+      resultDiv.style.display = 'block';
+    }
+
+    async function loadDiff(changelist, filePath, diffId, rev) {
+      const diffDiv = document.getElementById(diffId);
+      diffDiv.innerHTML = '<p style="color:#007bff;">JSON 변경사항 분석 중...</p>';
+      try {
+        const requestBody = {
+          changelist: changelist,
+          file_path: filePath,
+          rev: rev || undefined,
+          force_nochange_row: true
+        };
+        
+        console.log('🔍 Diff 요청:', requestBody);
+        
+        const response = await fetch('/api/get-diff', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(requestBody)
+        });
+        
+        const data = await response.json();
+        console.log('📥 Diff 응답:', data);
+        console.log('🔍 data.success:', data.success);
+        console.log('🔍 Array.isArray(data.changes):', Array.isArray(data.changes));
+        console.log('🔍 data.changes:', data.changes);
+
+        if (data.success && Array.isArray(data.changes)) {
+          console.log(`✅ Changes 개수: ${data.changes.length}`);
+          if (data.changes.length === 0) {
+            console.log('⚠️ 변경사항이 0개라서 early return');
+            diffDiv.innerHTML = '<p style="color:#orange;padding:10px;background:#fff4e6;border-radius:4px;">변경사항이 감지되지 않았습니다.</p>';
+            return;
+          }
+          console.log('🚀 renderDiffTable 호출 직전');
+          console.log('🚀 diffDiv:', diffDiv);
+          console.log('🚀 data:', data);
+          console.log('🚀 diffId:', diffId);
+          
+          try {
+            // 기존의 한 번에 렌더링하는 방식 대신 배치 렌더링 사용
+            renderDiffTable(diffDiv, data, diffId);
+            console.log('🚀 renderDiffTable 호출 완료');
+          } catch (error) {
+            console.error('🚀 renderDiffTable 오류:', error);
+            diffDiv.innerHTML = `<p style="color:red;">렌더링 오류: ${error.message}</p>`;
+          }
+        } else {
+          console.error('❌ API 오류:', data);
+          diffDiv.innerHTML = `<p style="color:red;padding:10px;background:#fee;border-radius:4px;">${escapeHtml(data.error || '알 수 없는 오류')}</p>`;
+        }
+      } catch (error) {
+        console.error('❌ 네트워크 오류:', error);
+        diffDiv.innerHTML = `<p style="color:red;padding:10px;background:#fee;border-radius:4px;">네트워크 오류: ${escapeHtml(error.message)}</p>`;
+      }
+    }
+
+    // 배치 렌더링 함수 추가
+    function renderDiffTable(diffDiv, data, diffId) {
+      console.log(`🎨 renderDiffTable 시작 - diffId: ${diffId}, totalChanges: ${data.changes.length}`);
+      console.log(`🎨 데이터 구조:`, data);
+      
+      const totalChanges = data.changes.length;
+      const BATCH_SIZE = 50; // 한번에 렌더링할 행 수
+      let currentBatch = 0;
+      let isScrolled = false; // 스크롤 여부 추적
+      
+      function renderBatch(batchIndex) {
+        console.log(`🎨 renderBatch ${batchIndex} 시작`);
+        const start = batchIndex * BATCH_SIZE;
+        const end = Math.min(start + BATCH_SIZE, totalChanges);
+        const batchChanges = data.changes.slice(start, end);
+        console.log(`🎨 배치 변경사항:`, batchChanges);
+        
+        if (batchIndex === 0) {
+          // 첫 배치: 전체 구조 생성
+          console.log(`🎨 첫 배치 - 전체 구조 생성`);
+          const initialHtml = `
+            <div style="background:#2d3748;color:#e2e8f0;padding:15px;border-radius:8px;margin-top:10px;">
+              <div style="color:#a0aec0;margin-bottom:15px;border-bottom:1px solid #4a5568;padding-bottom:10px;">
+                <strong>JSON 변경사항:</strong> ${escapeHtml(data.prev_version||'')} → ${escapeHtml(data.curr_version||'')}
+                <br><small>${escapeHtml(data.file_path||'')}</small>
+                <br><span id="progress-${diffId}">로딩 중... (0/${totalChanges})</span>
+              </div>
+              <div style="max-height:400px;overflow-y:auto;">
+                <table class="diff-table" id="table-${diffId}">
+                  <thead><tr><th>컬럼</th><th>변경 유형</th><th>이전 값</th><th>현재 값</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <button class="close-button" data-close-diff="${diffId}" style="margin-top:8px;">닫기</button>
+            <button class="export-excel" data-export-diff="${diffId}" style="margin-top:8px;margin-left:10px;background:#28a745;">Excel 내보내기</button>`;
+          
+          diffDiv.innerHTML = initialHtml;
+          console.log(`🎨 HTML 설정 완료`);
+          
+          // 닫기 버튼 이벤트
+          diffDiv.querySelector('[data-close-diff]').addEventListener('click', () => {
+            diffDiv.innerHTML = '';
+          });
+          
+          // Excel 내보내기 버튼 이벤트
+          diffDiv.querySelector('[data-export-diff]').addEventListener('click', () => {
+            exportDiffToExcel(data, diffId);
+          });
+        }
+        
+        // 배치 렌더링
+        const tbody = diffDiv.querySelector(`#table-${diffId} tbody`);
+        const progressSpan = diffDiv.querySelector(`#progress-${diffId}`);
+        console.log(`🎨 테이블 요소 찾기 - tbody: ${!!tbody}, progressSpan: ${!!progressSpan}`);
+        
+        batchChanges.forEach((ch, index) => {
+          console.log(`🎨 행 ${index} 처리 중:`, ch);
+          const type = (ch.type||'').toLowerCase();
+          let rowClass = 'row-nochange', typeText = 'nochange';
+          if (type==='modified'){rowClass='row-modified';typeText='수정'}
+          else if (type==='added'){rowClass='row-added';typeText='추가'}
+          else if (type==='removed'){rowClass='row-removed';typeText='삭제'}
+          else if (type==='error'){rowClass='row-error';typeText='오류'}
+          else if (type==='nochange'){typeText='변경사항 없음'}
+          
+          const keyName = simplifyPath(ch.path || '<root>');
+          const oldVal = formatValue(ch.old_value);
+          const newVal = formatValue(ch.new_value);
+          
+          console.log(`🎨 행 데이터 - type: ${type}, keyName: ${keyName}, oldVal: ${oldVal}, newVal: ${newVal}`);
+          
+          if (tbody) {
+            const row = tbody.insertRow();
+            row.className = rowClass;
+            
+            if (type === 'nochange') {
+              row.innerHTML = `
+                <td><code>${escapeHtml(keyName)}</code></td>
+                <td style="font-weight:bold;color:#a0aec0;">${escapeHtml(typeText)}</td>
+                <td colspan="2" style="color:#a0aec0;text-align:center;font-style:italic;">파일에 구조적 변경사항이 감지되지 않았습니다</td>`;
+            } else if (type === 'error') {
+              row.innerHTML = `
+                <td><code>${escapeHtml(keyName)}</code></td>
+                <td style="font-weight:bold;color:#dc3545;">파싱 오류</td>
+                <td colspan="2" style="color:#dc3545;font-weight:bold;">${escapeHtml(ch.message || '알 수 없는 오류')}</td>`;
+            } else {
+              row.innerHTML = `
+                <td><code>${escapeHtml(keyName)}</code></td>
+                <td style="font-weight:bold;">${escapeHtml(typeText)}</td>
+                ${
+                  type === 'error'
+                  ? `<td colspan="2" style="color:#fca5a5;">${escapeHtml(ch.message || '오류')}</td>`
+                  : `<td><code class="val-old">${escapeHtml(oldVal)}</code></td>
+                     <td><code class="val-new">${escapeHtml(newVal)}</code></td>`
+                }`;
+            }
+            console.log(`🎨 행 추가 완료 - rowClass: ${rowClass}`);
+          } else {
+            console.error(`🎨 tbody를 찾을 수 없음!`);
+          }
+        });
+        
+        // 진행률 업데이트
+        const loaded = end;
+        if (progressSpan) {
+          if (loaded >= totalChanges) {
+            progressSpan.textContent = `완료! 총 ${totalChanges}개 변경사항`;
+          } else {
+            progressSpan.textContent = `로딩 중... (${loaded}/${totalChanges})`;
+          }
+        }
+        
+        // 다음 배치 로딩 (스크롤 없이)
+        if (end < totalChanges) {
+          setTimeout(() => renderBatch(batchIndex + 1), 10); // 10ms 후 다음 배치
+        } else {
+          console.log(`🎨 renderDiffTable 완료!`);
+          // 스크롤 제거 - 현재 위치에서 diff 표시
+        }
+      }
+      
+      renderBatch(0);
+    }
+
+    // Excel 내보내기 함수
+    function exportDiffToExcel(data, diffId) {
+      // 현재 날짜를 YYYYMMDD 형식으로 가져오기
+      const today = new Date();
+      const dateStr = today.getFullYear() + 
+        String(today.getMonth() + 1).padStart(2, '0') + 
+        String(today.getDate()).padStart(2, '0');
+      
+      // 파일 경로에서 저장소명 추출
+      const filePath = data.file_path || '';
+      let depot = 'Unknown';
+      if (filePath.includes('Sol/Dev1Next')) depot = 'SolDev1Next';
+      else if (filePath.includes('Sol/Dev1')) depot = 'SolDev1';
+      else if (filePath.includes('Sol/Dev2')) depot = 'SolDev2';
+      else if (filePath.includes('Sol/Main')) depot = 'SolMain';
+      else if (filePath.includes('Sol/Staging')) depot = 'SolStaging';
+      
+      // change 번호 추출 (diffId에서)
+      const changeMatch = diffId.match(/_(\d+)_/);
+      const changeNum = changeMatch ? changeMatch[1] : 'Unknown';
+      
+      // 파일명 생성
+      const fileName = `${changeNum}_${depot}_${dateStr}.csv`;
+      
+      // CSV 데이터 생성 (UTF-8 BOM 추가)
+      let csvContent = "\uFEFF구분,컬럼,변경유형,이전값,현재값\n";
+      
+      data.changes.forEach((change, index) => {
+        const type = change.type || '';
+        const path = change.path || '<root>';
+        const oldVal = change.old_value !== null && change.old_value !== undefined ? String(change.old_value) : '';
+        const newVal = change.new_value !== null && change.new_value !== undefined ? String(change.new_value) : '';
+        
+        let typeText = type;
+        if (type === 'modified') typeText = '수정';
+        else if (type === 'added') typeText = '추가';
+        else if (type === 'removed') typeText = '삭제';
+        else if (type === 'error') typeText = '오류';
+        else if (type === 'nochange') typeText = '변경사항없음';
+        
+        const keyName = simplifyPath(path);
+        
+        // CSV 이스케이프 처리
+        const escapeCsv = (str) => {
+          if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+            return '"' + str.replace(/"/g, '""') + '"';
+          }
+          return str;
+        };
+        
+        csvContent += `${index + 1},${escapeCsv(keyName)},${escapeCsv(typeText)},${escapeCsv(oldVal)},${escapeCsv(newVal)}\n`;
+      });
+      
+      // 파일 다운로드 (UTF-8 인코딩으로 명시)
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = fileName;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // ----- Helper -----
+    function simplifyPath(p) {
+      // 배열 인덱스/식별자 표기([0], [rid=..]) 제거하고 마지막 키만 표시
+      if (!p) return '<root>';
+      // 점으로 분리
+      let parts = p.split('.');
+      // 마지막 유효 세그먼트 찾기
+      let last = parts[parts.length - 1];
+      // 예: "[rid=123]" 또는 "name[0]" 같은 경우 브라켓 제거
+      // 우선 전체 경로에서 마지막 세그먼트의 키만 추출
+      // 세그먼트 안에 '['가 있으면 그 앞부분 키만 취함
+      if (last.includes('[')) {
+        last = last.split('[')[0] || last;
+      }
+      // 빈 문자열이면 상위에서 다시 탐색
+      if (!last) {
+        for (let i = parts.length - 1; i >= 0; i--) {
+          let seg = parts[i];
+          if (!seg) continue;
+          if (seg.includes('[')) seg = seg.split('[')[0] || seg;
+          if (seg) { last = seg; break; }
+        }
+      }
+      return last || '<root>';
+    }
+
+    function formatValue(v) {
+      if (v === undefined) return '';
+      if (v === null) return 'null';
+      if (typeof v === 'object') {
+        try { return JSON.stringify(v); } catch { return String(v); }
+      }
+      return String(v);
+    }
+
+    function escapeHtml(text) {
+      if (text === null || text === undefined) return '';
+      const div = document.createElement('div');
+      div.textContent = String(text);
+      return div.innerHTML;
+    }
+
+    function escapeJs(text) {
+      if (text === null || text === undefined) return '';
+      return String(text).replace(/['"\\]/g, '\\$&');
+    }
+  </script>
+</body>
+</html>
